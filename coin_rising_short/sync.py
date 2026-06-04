@@ -18,13 +18,11 @@ def sync_state_with_exchange() -> None:
         return
 
     logger.info("거래소와 상태 동기화 중...", extra={"event": "sync_started"})
-    r = client.signed_request("GET", "/fapi/v1/openOrders", {})
-    if r.status_code != 200:
-        logger.warning("openOrders 조회 실패: %s %s", r.status_code, r.text)
-        orders_list: List[dict] = []
-    else:
-        raw = client.parse_json_response(r, "openOrders 조회")
-        orders_list = raw if isinstance(raw, list) else []
+    try:
+        orders_list = client.get_open_orders()
+    except Exception as exc:
+        logger.warning("openOrders 조회 실패: %s", exc)
+        orders_list = []
 
     open_map = {(o["symbol"], int(o["orderId"])): o for o in orders_list}
 
@@ -97,16 +95,15 @@ def sync_state_with_exchange() -> None:
                     st["tp_order_id"] = None
                     dirty = True
 
-    rp = client.signed_request("GET", "/fapi/v1/positionRisk", {})
-    if rp.status_code == 200:
-        positions = client.parse_json_response(rp, "positionRisk 조회")
-        if not isinstance(positions, list):
-            positions = []
+    try:
+        positions = client.get_position_risk()
         for p in positions:
-            amt = Decimal(str(p.get("positionAmt", "0")))
-            if amt != 0:
+            size = Decimal(str(p.get("size", "0")))
+            if size != 0:
                 sym = p.get("symbol")
-                logger.info("거래소 포지션: %s positionAmt=%s", sym, amt)
+                logger.info("거래소 포지션: %s size=%s side=%s", sym, size, p.get("side"))
+    except Exception as exc:
+        logger.warning("포지션 조회 실패: %s", exc)
 
     for symbol in remove_symbols:
         state.position_state.pop(symbol, None)

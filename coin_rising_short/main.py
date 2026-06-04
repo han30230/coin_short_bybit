@@ -41,7 +41,7 @@ class JsonLineFormatter(logging.Formatter):
             "event": getattr(record, "event", "log"),
             "env": getattr(record, "env", config.ENV),
             "strategy": getattr(record, "strategy", "coin_rising_short"),
-            "exchange": getattr(record, "exchange", "binance_futures"),
+            "exchange": getattr(record, "exchange", "bybit_linear"),
         }
         for key, value in record.__dict__.items():
             if key not in self._BASE_FIELDS:
@@ -58,7 +58,7 @@ class ContextFilter(logging.Filter):
         if not hasattr(record, "strategy"):
             record.strategy = "coin_rising_short"
         if not hasattr(record, "exchange"):
-            record.exchange = "binance_futures"
+            record.exchange = "bybit_linear"
         return True
 
 
@@ -96,7 +96,7 @@ def run() -> None:
     _configure_logging()
     logger = logging.getLogger(__name__)
     logger.info(
-        "Binance Futures + Spot 공존 필터 버전 시작 (ENV=%s)",
+        "Bybit Linear + Spot 공존 필터 버전 시작 (ENV=%s)",
         config.ENV,
         extra={"event": "startup"},
     )

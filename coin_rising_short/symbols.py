@@ -7,29 +7,53 @@ from coin_rising_short import client, config, upbit
 logger = logging.getLogger(__name__)
 
 
-def _is_old_enough_futures_symbol(s: dict) -> bool:
-    try:
-        onboard_ms = int(s.get("onboardDate", 0))
-    except Exception:
+def _is_old_enough_futures_symbol(launch_ms: int) -> bool:
+    if launch_ms <= 0:
         return False
-
-    if onboard_ms <= 0:
-        return False
-
     now_ms = int(time.time() * 1000)
     min_age_ms = config.MIN_FUTURES_LISTING_AGE_DAYS * 24 * 60 * 60 * 1000
-    return now_ms - onboard_ms >= min_age_ms
+    return now_ms - launch_ms >= min_age_ms
+
+
+def _linear_to_binance_shape(row: dict) -> dict:
+    """filters.parse_filters 호환용 Binance exchangeInfo 심볼 형태."""
+    symbol = row["symbol"]
+    base = row.get("baseCoin") or symbol.replace("USDT", "")
+    price_filter = row.get("priceFilter") or {}
+    lot_filter = row.get("lotSizeFilter") or {}
+    launch_ms = int(row.get("launchTime") or 0)
+    return {
+        "symbol": symbol,
+        "baseAsset": base,
+        "quoteAsset": row.get("quoteCoin", "USDT"),
+        "status": "TRADING",
+        "contractType": "PERPETUAL",
+        "closeOnly": False,
+        "orderTypes": ["LIMIT"],
+        "onboardDate": launch_ms,
+        "filters": [
+            {
+                "filterType": "PRICE_FILTER",
+                "tickSize": str(price_filter.get("tickSize", "0.01")),
+            },
+            {
+                "filterType": "LOT_SIZE",
+                "stepSize": str(lot_filter.get("qtyStep", "0.001")),
+                "minQty": str(lot_filter.get("minOrderQty", "0.001")),
+            },
+            {
+                "filterType": "MIN_NOTIONAL",
+                "notional": str(lot_filter.get("minNotionalValue", "0")),
+            },
+        ],
+    }
 
 
 def get_trading_symbols() -> Dict[str, dict]:
-    """선물(TRADING & PERPETUAL) 중 스팟에도 존재하는 심볼만."""
+    """선물(Linear USDT Perp) 중 Bybit 스팟에도 존재하는 심볼만."""
     logger.info("심볼 정보 로딩 중...")
 
-    fut_resp = client._http_get(f"{config.BASE_URL_FUTURES}/fapi/v1/exchangeInfo", timeout=10)
-    fut_data = client.parse_json_response(fut_resp, "futures exchangeInfo")
-    if not isinstance(fut_data, dict) or "symbols" not in fut_data:
-        raise RuntimeError("선물 exchangeInfo 응답 형식이 올바르지 않습니다.")
-
+    fut_rows = client.fetch_instruments_paginated(config.CATEGORY_LINEAR)
     upbit_assets = None
     if config.FILTER_UPBIT_LISTED:
         upbit_assets = upbit.get_upbit_base_assets()
@@ -37,41 +61,37 @@ def get_trading_symbols() -> Dict[str, dict]:
     else:
         logger.info("업비트 상장 필터 적용: OFF")
 
-    raw_futures_symbols = [
-        s
-        for s in fut_data["symbols"]
-        if (
-            s.get("status") == "TRADING"
-            and s.get("quoteAsset") == "USDT"
-            and s.get("contractType") == "PERPETUAL"
-            and not bool(s.get("closeOnly"))
-            and "LIMIT" in (s.get("orderTypes") or [])
-            and (
-                upbit_assets is None
-                or str(s.get("baseAsset", "")).upper() in upbit_assets
-            )
-        )
-    ]
+    raw_futures: list[dict] = []
+    for row in fut_rows:
+        if row.get("status") != "Trading":
+            continue
+        if row.get("quoteCoin") != "USDT":
+            continue
+        base = str(row.get("baseCoin", "")).upper()
+        if upbit_assets is not None and base not in upbit_assets:
+            continue
+        raw_futures.append(row)
 
-    futures_symbols = {
-        s["symbol"]: s
-        for s in raw_futures_symbols
-        if _is_old_enough_futures_symbol(s)
-    }
+    futures_symbols: Dict[str, dict] = {}
+    for row in raw_futures:
+        launch_ms = int(row.get("launchTime") or 0)
+        if not _is_old_enough_futures_symbol(launch_ms):
+            continue
+        shaped = _linear_to_binance_shape(row)
+        futures_symbols[shaped["symbol"]] = shaped
 
     logger.info(
         "선물 상장 %s일 이상 필터 적용: %s개 -> %s개",
         config.MIN_FUTURES_LISTING_AGE_DAYS,
-        len(raw_futures_symbols),
+        len(raw_futures),
         len(futures_symbols),
     )
 
-    spot_resp = client._http_get(f"{config.BASE_URL_SPOT}/api/v3/exchangeInfo", timeout=10)
-    spot_data = client.parse_json_response(spot_resp, "spot exchangeInfo")
-    if not isinstance(spot_data, dict) or "symbols" not in spot_data:
-        raise RuntimeError("스팟 exchangeInfo 응답 형식이 올바르지 않습니다.")
+    spot_rows = client.fetch_instruments_paginated(config.CATEGORY_SPOT)
     spot_symbols = {
-        s["symbol"] for s in spot_data["symbols"] if s.get("status") == "TRADING" and s.get("quoteAsset") == "USDT"
+        s["symbol"]
+        for s in spot_rows
+        if s.get("status") == "Trading" and s.get("quoteCoin") == "USDT"
     }
 
     both = {k: v for k, v in futures_symbols.items() if k in spot_symbols}

@@ -86,15 +86,8 @@ def _get_closed_closes(symbol: str) -> Tuple[Optional[List[Decimal]], str]:
     if cached is not None and now - cached[0] < config.INDICATOR_CACHE_TTL_SEC:
         return cached[1], ""
 
-    url = f"{config.BASE_URL_FUTURES}/fapi/v1/klines"
-    params = {
-        "symbol": symbol,
-        "interval": config.INDICATOR_INTERVAL,
-        "limit": str(config.INDICATOR_KLINE_LIMIT),
-    }
     try:
-        resp = client._http_get(url, params=params, timeout=10)
-        data = client.parse_json_response(resp, "futures klines")
+        data = client.get_klines_binance_shape(symbol)
     except Exception as exc:
         msg = f"kline API/파싱 실패: {exc}"
         logger.warning("%s symbol=%s", msg, symbol, extra={"event": "indicator_kline_failed", "symbol": symbol})

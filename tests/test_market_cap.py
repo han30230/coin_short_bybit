@@ -50,18 +50,17 @@ class TestMonitorQualifiedMcap(unittest.TestCase):
     def _ticker_row(self) -> dict:
         return {
             "symbol": "BTCUSDT",
-            "priceChangePercent": "25",
-            "quoteVolume": "5000000",
+            "price24hPcnt": "0.25",
+            "turnover24h": "5000000",
             "lastPrice": "50000",
         }
 
     @patch("coin_rising_short.monitor.symbols.TRADING_SYMBOLS", {"BTCUSDT": {}})
-    @patch("coin_rising_short.monitor.client.parse_json_response")
-    @patch("coin_rising_short.monitor.client._http_get")
+    @patch("coin_rising_short.monitor.client.get_linear_tickers")
     def test_mcap_below_min_excluded_from_qualified(
-        self, mock_get: MagicMock, mock_parse: MagicMock
+        self, mock_tickers: MagicMock,
     ) -> None:
-        mock_parse.return_value = [self._ticker_row()]
+        mock_tickers.return_value = [self._ticker_row()]
         funding = {"BTCUSDT": Decimal("0")}
 
         with patch.object(config, "MCAP_FILTER_ENABLED", True), patch.object(
@@ -74,12 +73,11 @@ class TestMonitorQualifiedMcap(unittest.TestCase):
         self.assertEqual(qualified, [])
 
     @patch("coin_rising_short.monitor.symbols.TRADING_SYMBOLS", {"BTCUSDT": {}})
-    @patch("coin_rising_short.monitor.client.parse_json_response")
-    @patch("coin_rising_short.monitor.client._http_get")
+    @patch("coin_rising_short.monitor.client.get_linear_tickers")
     def test_no_cmc_key_behaves_like_before_no_mcap_call(
-        self, mock_get: MagicMock, mock_parse: MagicMock
+        self, mock_tickers: MagicMock,
     ) -> None:
-        mock_parse.return_value = [self._ticker_row()]
+        mock_tickers.return_value = [self._ticker_row()]
         funding = {"BTCUSDT": Decimal("0")}
 
         with patch.object(config, "MCAP_FILTER_ENABLED", False), patch(
@@ -93,12 +91,11 @@ class TestMonitorQualifiedMcap(unittest.TestCase):
         self.assertNotIn("market_cap_usd", qualified[0])
 
     @patch("coin_rising_short.monitor.symbols.TRADING_SYMBOLS", {"BTCUSDT": {}})
-    @patch("coin_rising_short.monitor.client.parse_json_response")
-    @patch("coin_rising_short.monitor.client._http_get")
+    @patch("coin_rising_short.monitor.client.get_linear_tickers")
     def test_mcap_meets_min_includes_field(
-        self, mock_get: MagicMock, mock_parse: MagicMock
+        self, mock_tickers: MagicMock,
     ) -> None:
-        mock_parse.return_value = [self._ticker_row()]
+        mock_tickers.return_value = [self._ticker_row()]
         funding = {"BTCUSDT": Decimal("0")}
         cap = Decimal("150000000")
 

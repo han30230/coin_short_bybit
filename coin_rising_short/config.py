@@ -9,15 +9,22 @@ _PROJECT_ROOT = os.path.dirname(_PACKAGE_ROOT)
 
 load_dotenv(dotenv_path=os.path.join(_PROJECT_ROOT, ".env"))
 
-API_KEY = os.getenv("BINANCE_API_KEY")
-API_SECRET = os.getenv("BINANCE_SECRET")
+API_KEY = os.getenv("BYBIT_API_KEY_SH") or os.getenv("BYBIT_API_KEY")
+API_SECRET = os.getenv("BYBIT_SECRET_SH") or os.getenv("BYBIT_SECRET")
 
-ENV = (os.getenv("BINANCE_ENV") or "mainnet").lower()
-BASE_URL_FUTURES = "https://fapi.binance.com" if ENV == "mainnet" else "https://testnet.binancefuture.com"
-BASE_URL_SPOT = "https://api.binance.com" if ENV == "mainnet" else "https://testnet.binance.vision"
+ENV = (os.getenv("BYBIT_ENV") or os.getenv("BINANCE_ENV") or "mainnet").lower()
+BASE_URL = "https://api.bybit.com" if ENV == "mainnet" else "https://api-testnet.bybit.com"
+
+# 하위 호환 (일부 모듈이 참조할 수 있음)
+BASE_URL_FUTURES = BASE_URL
+BASE_URL_SPOT = BASE_URL
+
+CATEGORY_LINEAR = "linear"
+CATEGORY_SPOT = "spot"
+SETTLE_COIN = "USDT"
 
 if not API_KEY or not API_SECRET:
-    raise Exception("❌ .env에서 API 키를 불러오지 못했습니다!")
+    raise Exception("❌ .env에서 Bybit API 키를 불러오지 못했습니다! (BYBIT_API_KEY_SH / BYBIT_SECRET_SH)")
 
 POSITION_USDT = Decimal("50")
 PREMIUM_PCT = Decimal("0.01")
@@ -31,6 +38,7 @@ POLL_INTERVAL_SEC = 10
 
 LEVERAGE = int(os.getenv("LEVERAGE") or "5")
 HTTP_MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES") or "5")
+RECV_WINDOW_MS = int(os.getenv("BYBIT_RECV_WINDOW") or "8000")
 
 POSITION_STATE_PATH = os.getenv("POSITION_STATE_FILE") or os.path.join(
     _PROJECT_ROOT, "position_state.json"
@@ -38,16 +46,13 @@ POSITION_STATE_PATH = os.getenv("POSITION_STATE_FILE") or os.path.join(
 TRADE_JOURNAL_PATH = os.getenv("TRADE_JOURNAL_FILE") or os.path.join(
     _PROJECT_ROOT, "logs", "trade_journal.csv"
 )
-FORCE_HEDGE = (os.getenv("FORCE_HEDGE") or "false").lower() == "true"
+FORCE_HEDGE = (os.getenv("FORCE_HEDGE") or "true").lower() == "true"
 
-# 업비트 상장 코인만 거래 대상으로 제한 (기본: true)
 FILTER_UPBIT_LISTED = (os.getenv("FILTER_UPBIT_LISTED") or "true").lower() == "true"
 
-# Binance USDT-M 선물 exchangeInfo onboardDate 기준 최소 상장 경과 일수
+# Bybit linear instruments launchTime 기준 최소 상장 경과 일수
 MIN_FUTURES_LISTING_AGE_DAYS = int(os.getenv("MIN_FUTURES_LISTING_AGE_DAYS") or "365")
 
-# 펀딩비 필터: lastFundingRate 가 이 값보다 커야 진입 허용
-# -0.005 == -0.5%
 MIN_FUNDING_RATE = Decimal(os.getenv("MIN_FUNDING_RATE") or "-0.005")
 
 USE_ENTRY_INDICATOR_FILTER = (os.getenv("USE_ENTRY_INDICATOR_FILTER") or "true").lower() == "true"
@@ -63,7 +68,6 @@ REENTRY_RSI_THRESHOLD = Decimal(os.getenv("REENTRY_RSI_THRESHOLD") or "80")
 REENTRY_MA20_GAP_PCT = Decimal(os.getenv("REENTRY_MA20_GAP_PCT") or "1.0")
 REENTRY_RECENT_OVER_BARS = int(os.getenv("REENTRY_RECENT_OVER_BARS") or "5")
 
-# CoinMarketCap (선택). 키가 있으면 급등 후보에 시가총액 필터 적용
 CMC_API_KEY = (os.getenv("CMC_API_KEY") or "").strip()
 MCAP_FILTER_ENABLED = bool(CMC_API_KEY)
 MIN_MARKET_CAP_USD = Decimal(os.getenv("MIN_MARKET_CAP_USD") or "100000000")

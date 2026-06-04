@@ -9,19 +9,16 @@ logger = logging.getLogger(__name__)
 
 
 def _get_funding_rate_map() -> Dict[str, Decimal]:
-    resp = client._http_get(f"{config.BASE_URL_FUTURES}/fapi/v1/premiumIndex", timeout=10)
-    data = client.parse_json_response(resp, "premiumIndex")
-    if not isinstance(data, list):
-        raise RuntimeError(f"premiumIndex 응답 형식 오류: {type(data)}")
+    tickers = client.get_linear_tickers()
     out: Dict[str, Decimal] = {}
-    for row in data:
+    for row in tickers:
         if not isinstance(row, dict):
             continue
         symbol = row.get("symbol")
         if not isinstance(symbol, str):
             continue
         try:
-            out[symbol] = Decimal(str(row.get("lastFundingRate", "0")))
+            out[symbol] = Decimal(str(row.get("fundingRate", "0")))
         except Exception:
             continue
     return out
@@ -32,9 +29,7 @@ def get_futures_gainers_and_top_movers(
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     market_cap.log_mcap_filter_status_once()
 
-    url = f"{config.BASE_URL_FUTURES}/fapi/v1/ticker/24hr"
-    response = client._http_get(url, timeout=10)
-    data = client.parse_json_response(response, "24hr ticker")
+    data = client.get_linear_tickers()
     if not isinstance(data, list):
         raise RuntimeError(f"24hr ticker 응답 형식 오류: {type(data)}")
 
@@ -45,9 +40,10 @@ def get_futures_gainers_and_top_movers(
         if symbol not in symbols.TRADING_SYMBOLS:
             continue
         try:
-            change_pct = Decimal(t["priceChangePercent"])
-            turnover_24h = Decimal(t["quoteVolume"])
-            last_price = Decimal(t["lastPrice"])
+            # Bybit price24hPcnt: 소수(0.1678 = 16.78%)
+            change_pct = Decimal(str(t.get("price24hPcnt", "0"))) * Decimal("100")
+            turnover_24h = Decimal(str(t.get("turnover24h", "0")))
+            last_price = Decimal(str(t.get("lastPrice", "0")))
 
             row = {
                 "symbol": symbol,
@@ -356,7 +352,7 @@ def check_tp_filled_and_log() -> None:
 
 
 def monitor_loop() -> None:
-    logger.info("Binance 선물 급등 종목 감시 시작 (스팟+선물 공존 필터 적용)...")
+    logger.info("Bybit 선물 급등 종목 감시 시작 (스팟+선물 공존 필터 적용)...")
     while True:
         try:
             funding_rate_map = _get_funding_rate_map()
