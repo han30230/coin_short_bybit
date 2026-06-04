@@ -1,5 +1,6 @@
 .env
 position_state.json
+supertrend_watch.json
 logs/
 *.tmp
 __pycache__/

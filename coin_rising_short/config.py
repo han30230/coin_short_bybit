@@ -68,6 +68,17 @@ REENTRY_RSI_THRESHOLD = Decimal(os.getenv("REENTRY_RSI_THRESHOLD") or "80")
 REENTRY_MA20_GAP_PCT = Decimal(os.getenv("REENTRY_MA20_GAP_PCT") or "1.0")
 REENTRY_RECENT_OVER_BARS = int(os.getenv("REENTRY_RECENT_OVER_BARS") or "5")
 
+# SuperTrend (TradingView 스크립트: 4h / ATR 4 / Factor 7 / hlc3)
+USE_SUPERTREND_ENTRY = (os.getenv("USE_SUPERTREND_ENTRY") or "true").lower() == "true"
+SUPERTREND_INTERVAL = os.getenv("SUPERTREND_INTERVAL") or "4h"
+SUPERTREND_ATR_PERIOD = int(os.getenv("SUPERTREND_ATR_PERIOD") or "4")
+SUPERTREND_FACTOR = Decimal(os.getenv("SUPERTREND_FACTOR") or "7")
+SUPERTREND_SOURCE = (os.getenv("SUPERTREND_SOURCE") or "hl2").lower()
+SUPERTREND_KLINE_LIMIT = int(os.getenv("SUPERTREND_KLINE_LIMIT") or "100")
+SUPERTREND_WATCH_STATE_PATH = os.getenv("SUPERTREND_WATCH_STATE_FILE") or os.path.join(
+    _PROJECT_ROOT, "supertrend_watch.json"
+)
+
 CMC_API_KEY = (os.getenv("CMC_API_KEY") or "").strip()
 MCAP_FILTER_ENABLED = bool(CMC_API_KEY)
 MIN_MARKET_CAP_USD = Decimal(os.getenv("MIN_MARKET_CAP_USD") or "100000000")

@@ -59,8 +59,8 @@ def effective_timestamp_ms() -> int:
     return int(time.time() * 1000) + _time_offset_ms
 
 
-def kline_interval() -> str:
-    iv = config.INDICATOR_INTERVAL.strip().lower()
+def kline_interval(interval: Optional[str] = None) -> str:
+    iv = (interval or config.INDICATOR_INTERVAL).strip().lower()
     return _KLINE_INTERVAL_MAP.get(iv, iv)
 
 
@@ -294,15 +294,21 @@ def get_ticker_price(symbol: str) -> Decimal:
     return Decimal(str(rows[0]["lastPrice"]))
 
 
-def get_klines_binance_shape(symbol: str) -> List[list]:
+def get_klines_binance_shape(
+    symbol: str,
+    interval: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[list]:
     """Binance klines 배열 형태 [openTime, o, h, l, close, ...] 로 변환."""
+    req_limit = limit if limit is not None else config.INDICATOR_KLINE_LIMIT
+
     result = public_get(
         "/v5/market/kline",
         {
             "category": config.CATEGORY_LINEAR,
             "symbol": symbol,
-            "interval": kline_interval(),
-            "limit": config.INDICATOR_KLINE_LIMIT,
+            "interval": kline_interval(interval),
+            "limit": req_limit,
         },
     )
     rows = result.get("list") if isinstance(result, dict) else None

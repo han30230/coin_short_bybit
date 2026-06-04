@@ -351,8 +351,135 @@ def check_tp_filled_and_log() -> None:
         state.save_position_state()
 
 
+def _passes_entry_prefilters(symbol: str) -> Tuple[bool, str]:
+    if config.USE_ENTRY_INDICATOR_FILTER:
+        return indicators.allow_initial_short(symbol)
+    return True, "ok"
+
+
+def _sync_qualified_watch(gainers: List[Dict[str, Any]]) -> set[str]:
+    """급등 후보(상위) 중 1차 지표 통과 종목을 SuperTrend 감시 목록에 반영."""
+    now = time.time()
+    active: set[str] = set()
+    for g in gainers[:10]:
+        symbol = g["symbol"]
+        until = runtime.SKIP_UNTIL.get(symbol, 0)
+        if until and int(now) < until:
+            continue
+        if symbol in state.position_state:
+            continue
+        ok, reason = _passes_entry_prefilters(symbol)
+        if not ok:
+            continue
+        active.add(symbol)
+        if symbol not in runtime.QUALIFIED_WATCH:
+            runtime.QUALIFIED_WATCH[symbol] = {"added_at": now, "last_direction": None}
+            logger.info(
+                "SuperTrend 숏 신호 대기 등록: %s",
+                symbol,
+                extra={"event": "supertrend_watch_added", "symbol": symbol},
+            )
+
+    for symbol in list(runtime.QUALIFIED_WATCH.keys()):
+        if symbol not in active:
+            runtime.QUALIFIED_WATCH.pop(symbol, None)
+            logger.info(
+                "SuperTrend 감시 해제(조건 이탈): %s",
+                symbol,
+                extra={"event": "supertrend_watch_removed", "symbol": symbol},
+            )
+    if config.USE_SUPERTREND_ENTRY:
+        state.save_qualified_watch()
+    return active
+
+
+def _record_initial_short_entry(symbol: str, entry: Tuple[Decimal, Decimal, int]) -> None:
+    entry_price, qty, order_id = entry
+    state.position_state[symbol] = {
+        "entry_price": entry_price,
+        "reentry_count": 0,
+        "last_reentry_price": entry_price,
+        "tp_order_id": None,
+        "tp_entry_price": Decimal("0"),
+        "tp_qty": Decimal("0"),
+        "tp_exit_logged": False,
+        "entries": [
+            {
+                "direction": "SHORT",
+                "entry_price": entry_price,
+                "qty": qty,
+                "order_id": order_id,
+                "filled": False,
+            }
+        ],
+    }
+    runtime.QUALIFIED_WATCH.pop(symbol, None)
+    logger.info(
+        "%s 첫 진입 기록: entry_price=%s, orderId=%s, qty=%s",
+        symbol,
+        entry_price,
+        order_id,
+        qty,
+        extra={
+            "event": "entry_recorded",
+            "symbol": symbol,
+            "entry_price": str(entry_price),
+            "order_id": order_id,
+            "qty": str(qty),
+        },
+    )
+    state.save_position_state()
+    state.save_qualified_watch()
+
+
+def _try_initial_short_entry(symbol: str) -> None:
+    if config.USE_SUPERTREND_ENTRY:
+        ok, reason = indicators.is_supertrend_short_signal(symbol)
+        if not ok:
+            if symbol in runtime.QUALIFIED_WATCH:
+                logger.info(
+                    "SuperTrend 숏 신호 대기: %s (%s)",
+                    symbol,
+                    reason,
+                    extra={
+                        "event": "supertrend_entry_waiting",
+                        "symbol": symbol,
+                        "reason": reason,
+                    },
+                )
+            return
+        logger.info(
+            "SuperTrend 숏 신호 확인, 진입 시도: %s (%s)",
+            symbol,
+            reason,
+            extra={"event": "supertrend_short_signal", "symbol": symbol},
+        )
+    else:
+        ok, reason = _passes_entry_prefilters(symbol)
+        if not ok:
+            logger.info(
+                "지표 필터로 신규 진입 스킵: %s reason=%s",
+                symbol,
+                reason,
+                extra={
+                    "event": "initial_entry_indicator_skipped",
+                    "symbol": symbol,
+                    "reason": reason,
+                },
+            )
+            return
+
+    entry = orders.place_short_order(symbol)
+    if entry is not None:
+        _record_initial_short_entry(symbol, entry)
+
+
 def monitor_loop() -> None:
-    logger.info("Bybit 선물 급등 종목 감시 시작 (스팟+선물 공존 필터 적용)...")
+    st_mode = "ON" if config.USE_SUPERTREND_ENTRY else "OFF"
+    logger.info(
+        "Bybit 선물 급등 종목 감시 시작 (스팟+선물 공존, SuperTrend 진입=%s)...",
+        st_mode,
+    )
     while True:
         try:
             funding_rate_map = _get_funding_rate_map()
@@ -393,6 +520,8 @@ def monitor_loop() -> None:
                         },
                     )
             else:
+                _sync_qualified_watch(gainers)
+
                 for i, g in enumerate(gainers[:10], start=1):
                     symbol = g["symbol"]
                     until = runtime.SKIP_UNTIL.get(symbol, 0)
@@ -401,11 +530,13 @@ def monitor_loop() -> None:
                     current_price = g["last_price"]
                     change_pct = g["change_pct"]
                     funding_rate = g.get("funding_rate", Decimal("0"))
+                    watch_tag = " [ST감시]" if symbol in runtime.QUALIFIED_WATCH else ""
 
                     logger.info(
-                        "%s. %s | price: %.4f | change: %.2f%% | funding: %s",
+                        "%s. %s%s | price: %.4f | change: %.2f%% | funding: %s",
                         i,
                         symbol,
+                        watch_tag,
                         current_price,
                         change_pct,
                         funding_rate,
@@ -416,60 +547,16 @@ def monitor_loop() -> None:
                             "last_price": str(current_price),
                             "change_pct": str(change_pct),
                             "funding_rate": str(funding_rate),
+                            "supertrend_watch": symbol in runtime.QUALIFIED_WATCH,
                         },
                     )
 
                     if symbol not in state.position_state:
-                        if config.USE_ENTRY_INDICATOR_FILTER:
-                            ok, reason = indicators.allow_initial_short(symbol)
-                            if not ok:
-                                logger.info(
-                                    "지표 필터로 신규 진입 스킵: %s reason=%s",
-                                    symbol,
-                                    reason,
-                                    extra={
-                                        "event": "initial_entry_indicator_skipped",
-                                        "symbol": symbol,
-                                        "reason": reason,
-                                    },
-                                )
-                                continue
-                        entry = orders.place_short_order(symbol)
-                        if entry is not None:
-                            entry_price, qty, order_id = entry
-                            state.position_state[symbol] = {
-                                "entry_price": entry_price,
-                                "reentry_count": 0,
-                                "last_reentry_price": entry_price,
-                                "tp_order_id": None,
-                                "tp_entry_price": Decimal("0"),
-                                "tp_qty": Decimal("0"),
-                                "tp_exit_logged": False,
-                                "entries": [
-                                    {
-                                        "direction": "SHORT",
-                                        "entry_price": entry_price,
-                                        "qty": qty,
-                                        "order_id": order_id,
-                                        "filled": False,
-                                    }
-                                ],
-                            }
-                            logger.info(
-                                "%s 첫 진입 기록: entry_price=%s, orderId=%s, qty=%s",
-                                symbol,
-                                entry_price,
-                                order_id,
-                                qty,
-                                extra={
-                                    "event": "entry_recorded",
-                                    "symbol": symbol,
-                                    "entry_price": str(entry_price),
-                                    "order_id": order_id,
-                                    "qty": str(qty),
-                                },
-                            )
-                            state.save_position_state()
+                        if config.USE_SUPERTREND_ENTRY:
+                            if symbol in runtime.QUALIFIED_WATCH:
+                                _try_initial_short_entry(symbol)
+                        else:
+                            _try_initial_short_entry(symbol)
                         continue
 
                     st = state.position_state[symbol]
