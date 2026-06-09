@@ -98,7 +98,7 @@ def clear_symbol_state(
                     symbol=symbol,
                     direction=direction,
                     entry_order_id="MULTI",
-                    tp_order_id=int(st.get("exit_order_id") or 0),
+                    tp_order_id=st.get("exit_order_id") or "",
                     entry_price=avg_entry if avg_entry > 0 else exit_price,
                     exit_price=exit_price,
                     qty=qty,

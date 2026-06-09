@@ -110,7 +110,7 @@ def _get_filled_position(st: Dict[str, Any]) -> Tuple[Decimal, Decimal, str]:
     return positions.get_filled_from_state(st)
 
 
-def _close_short_with_retry(symbol: str, qty: Decimal) -> Optional[int]:
+def _close_short_with_retry(symbol: str, qty: Decimal) -> Optional[str]:
     for attempt in range(1, config.EXIT_CLOSE_MAX_RETRIES + 1):
         close_oid = orders.close_short_position(symbol, qty)
         if close_oid is not None:
@@ -132,7 +132,7 @@ def _close_short_with_retry(symbol: str, qty: Decimal) -> Optional[int]:
     return None
 
 
-def _finalize_exit_filled(symbol: str, st: Dict[str, Any], exit_oid: int, detail: dict) -> None:
+def _finalize_exit_filled(symbol: str, st: Dict[str, Any], exit_oid: str, detail: dict) -> None:
     exit_price = Decimal(str(detail.get("avgPrice", "0")))
     exit_qty = Decimal(str(detail.get("executedQty", "0")))
     avg_entry, _, direction = _get_filled_position(st)
@@ -141,7 +141,7 @@ def _finalize_exit_filled(symbol: str, st: Dict[str, Any], exit_oid: int, detail
             symbol=symbol,
             direction=direction,
             entry_order_id="MULTI",
-            tp_order_id=int(exit_oid),
+            tp_order_id=exit_oid,
             entry_price=avg_entry if avg_entry > 0 else exit_price,
             exit_price=exit_price,
             qty=exit_qty,
@@ -165,24 +165,24 @@ def _process_short_exit(symbol: str, st: Dict[str, Any], exchange_shorts: Dict[s
     exit_oid = st.get("exit_order_id")
     if exit_oid:
         try:
-            detail = orders.get_order_detail(symbol, int(exit_oid))
+            detail = orders.get_order_detail(symbol, exit_oid)
         except Exception as exc:
             logger.warning("청산 주문 조회 실패: %s orderId=%s %s", symbol, exit_oid, exc)
             detail = None
         status = detail.get("status") if detail else None
         if status == "FILLED" and detail:
-            _finalize_exit_filled(symbol, st, int(exit_oid), detail)
+            _finalize_exit_filled(symbol, st, str(exit_oid), detail)
             logger.info(
                 "ST 롱 청산 완료: %s exitOrderId=%s",
                 symbol,
                 exit_oid,
-                extra={"event": "st_long_exit_filled", "symbol": symbol, "order_id": int(exit_oid)},
+                extra={"event": "st_long_exit_filled", "symbol": symbol, "order_id": str(exit_oid)},
             )
             return True
         if status == "NEW":
             return False
         if status == "PARTIALLY_FILLED":
-            orders.cancel_order(symbol, int(exit_oid))
+            orders.cancel_order(symbol, exit_oid)
             st["exit_order_id"] = None
         else:
             logger.warning(
@@ -237,7 +237,7 @@ def _refresh_symbol_take_profit(symbol: str, st: Dict[str, Any]) -> bool:
     if existing_tp_oid:
         old_avg = str(st.get("tp_entry_price", ""))
         old_qty = str(st.get("tp_qty", ""))
-        tp_status = orders.get_order_status(symbol, int(existing_tp_oid))
+        tp_status = orders.get_order_status(symbol, existing_tp_oid)
         if tp_status == "FILLED":
             return False
         if tp_status in ("NEW", "PARTIALLY_FILLED") and old_avg == target_avg and old_qty == target_qty:
@@ -245,7 +245,7 @@ def _refresh_symbol_take_profit(symbol: str, st: Dict[str, Any]) -> bool:
         need_replace = True
 
     if need_replace and existing_tp_oid:
-        if not orders.cancel_order(symbol, int(existing_tp_oid)):
+        if not orders.cancel_order(symbol, existing_tp_oid):
             return False
 
     tp_oid = None
@@ -390,7 +390,7 @@ def check_filled_and_refresh_tp() -> None:
                 if _refresh_symbol_take_profit(symbol, st):
                     dirty = True
             elif config.USE_SUPERTREND_EXIT and st.get("tp_order_id"):
-                if orders.cancel_order(symbol, int(st["tp_order_id"])):
+                if orders.cancel_order(symbol, st["tp_order_id"]):
                     st["tp_order_id"] = None
                     dirty = True
         # 모든 엔트리가 종료됐고 TP도 없다면, 심볼 상태를 지워서 다음 사이클 진입 가능하게 함.
@@ -445,7 +445,7 @@ def check_supertrend_exit_and_log(
             continue
 
         if st.get("tp_order_id"):
-            if orders.cancel_order(symbol, int(st["tp_order_id"])):
+            if orders.cancel_order(symbol, st["tp_order_id"]):
                 st["tp_order_id"] = None
                 dirty = True
 
@@ -488,7 +488,7 @@ def check_tp_filled_and_log() -> None:
         tp_oid = st.get("tp_order_id")
         if not tp_oid or st.get("tp_exit_logged"):
             continue
-        tp_detail = orders.get_order_detail(symbol, int(tp_oid))
+        tp_detail = orders.get_order_detail(symbol, tp_oid)
         if not tp_detail or tp_detail.get("status") != "FILLED":
             continue
         exit_price = Decimal(str(tp_detail.get("avgPrice", "0")))
@@ -505,7 +505,7 @@ def check_tp_filled_and_log() -> None:
             symbol=symbol,
             direction=direction,
             entry_order_id="MULTI",
-            tp_order_id=int(tp_oid),
+            tp_order_id=tp_oid,
             entry_price=avg_entry if avg_entry > 0 else exit_price,
             exit_price=exit_price,
             qty=exit_qty,
@@ -525,7 +525,7 @@ def check_tp_filled_and_log() -> None:
             "TP 체결 기록 완료: %s tpOrderId=%s",
             symbol,
             tp_oid,
-            extra={"event": "tp_filled_logged", "symbol": symbol, "order_id": int(tp_oid)},
+            extra={"event": "tp_filled_logged", "symbol": symbol, "order_id": str(tp_oid)},
         )
     for symbol in remove_symbols:
         state.position_state.pop(symbol, None)

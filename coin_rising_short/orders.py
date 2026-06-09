@@ -1,9 +1,11 @@
 import logging
 import time
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from coin_rising_short import client, config, filters, runtime
+
+OrderId = Union[int, str]
 
 _leverage_ready: set = set()
 logger = logging.getLogger(__name__)
@@ -41,7 +43,7 @@ def set_dual_side_position(enable: bool) -> bool:
     return client.set_dual_side_position(enable)
 
 
-def get_order_status(symbol: str, order_id: int) -> Optional[str]:
+def get_order_status(symbol: str, order_id: OrderId) -> Optional[str]:
     try:
         detail = client.get_order_detail(symbol, order_id)
         if not detail:
@@ -54,7 +56,7 @@ def get_order_status(symbol: str, order_id: int) -> Optional[str]:
         return None
 
 
-def get_order_detail(symbol: str, order_id: int) -> Optional[dict]:
+def get_order_detail(symbol: str, order_id: OrderId) -> Optional[dict]:
     try:
         return client.get_order_detail(symbol, order_id)
     except Exception as e:
@@ -62,7 +64,7 @@ def get_order_detail(symbol: str, order_id: int) -> Optional[dict]:
         return None
 
 
-def cancel_order(symbol: str, order_id: int) -> bool:
+def cancel_order(symbol: str, order_id: OrderId) -> bool:
     try:
         if client.cancel_order(symbol, order_id):
             logger.info(
@@ -86,7 +88,7 @@ def cancel_order(symbol: str, order_id: int) -> bool:
 
 def place_limit_order(
     symbol: str, side: str, price: Decimal, qty: Decimal, position_side: Optional[str]
-) -> Tuple[Optional[int], Optional[dict]]:
+) -> Tuple[Optional[OrderId], Optional[dict]]:
     try:
         order_id, err = client.place_limit_order_raw(
             symbol=symbol,
@@ -138,7 +140,7 @@ def place_limit_order(
 
 def place_take_profit_order(
     symbol: str, direction: str, entry_price: Decimal, qty: Decimal
-) -> Optional[int]:
+) -> Optional[OrderId]:
     try:
         price_step, qty_step, min_qty, min_notional = filters.get_price_step_and_qty_step(symbol)
 
@@ -199,7 +201,7 @@ def place_take_profit_order(
         return None
 
 
-def close_short_position(symbol: str, qty: Decimal) -> Optional[int]:
+def close_short_position(symbol: str, qty: Decimal) -> Optional[OrderId]:
     """숏 포지션 시장가 청산 (reduceOnly)."""
     try:
         _, qty_step, min_qty, _ = filters.get_price_step_and_qty_step(symbol)
@@ -248,7 +250,7 @@ def _is_risk_limit_error(err: Optional[dict]) -> bool:
 
 def place_short_order(
     symbol: str, notional_usdt: Optional[Decimal] = None
-) -> Optional[Tuple[Decimal, Decimal, int]]:
+) -> Optional[Tuple[Decimal, Decimal, OrderId]]:
     logger.info("숏 주문 시도: %s", symbol)
     try:
         ensure_leverage(symbol)
@@ -299,7 +301,7 @@ def place_short_order(
 
 def place_long_order(
     symbol: str, notional_usdt: Optional[Decimal] = None
-) -> Optional[Tuple[Decimal, Decimal, int]]:
+) -> Optional[Tuple[Decimal, Decimal, OrderId]]:
     logger.info("롱 주문 시도: %s", symbol)
     try:
         ensure_leverage(symbol)

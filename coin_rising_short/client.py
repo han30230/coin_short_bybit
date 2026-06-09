@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlencode
 
 import requests
@@ -64,6 +64,16 @@ def kline_interval(interval: Optional[str] = None) -> str:
     return _KLINE_INTERVAL_MAP.get(iv, iv)
 
 
+OrderId = Union[int, str]
+
+
+def as_order_id(order_id: Optional[OrderId]) -> str:
+    """Bybit v5 orderId는 UUID 문자열. API·상태 저장은 str로 통일."""
+    if order_id is None:
+        return ""
+    return str(order_id).strip()
+
+
 def normalize_order_status(bybit_status: str) -> str:
     return _ORDER_STATUS_MAP.get(bybit_status, bybit_status)
 
@@ -73,7 +83,7 @@ def normalize_order(raw: dict) -> dict:
     oid = raw.get("orderId")
     return {
         "symbol": raw.get("symbol"),
-        "orderId": int(oid) if oid is not None else 0,
+        "orderId": as_order_id(oid) if oid is not None else "",
         "status": normalize_order_status(str(raw.get("orderStatus", ""))),
         "avgPrice": str(raw.get("avgPrice") or "0"),
         "executedQty": str(raw.get("cumExecQty") or "0"),
@@ -396,12 +406,13 @@ def get_open_orders() -> List[dict]:
     return []
 
 
-def get_order_detail(symbol: str, order_id: int) -> Optional[dict]:
+def get_order_detail(symbol: str, order_id: OrderId) -> Optional[dict]:
+    oid = as_order_id(order_id)
     for open_only in (True, False):
         params: dict = {
             "category": config.CATEGORY_LINEAR,
             "symbol": symbol,
-            "orderId": str(order_id),
+            "orderId": oid,
         }
         path = "/v5/order/realtime" if open_only else "/v5/order/history"
         result = signed_get(path, params)
@@ -416,13 +427,13 @@ def get_order_detail(symbol: str, order_id: int) -> Optional[dict]:
     return {"status": "NOT_FOUND"}
 
 
-def cancel_order(symbol: str, order_id: int) -> bool:
+def cancel_order(symbol: str, order_id: OrderId) -> bool:
     result = signed_post(
         "/v5/order/cancel",
         {
             "category": config.CATEGORY_LINEAR,
             "symbol": symbol,
-            "orderId": str(order_id),
+            "orderId": as_order_id(order_id),
         },
     )
     if isinstance(result, dict) and result.get("_error"):
@@ -437,7 +448,7 @@ def place_limit_order_raw(
     qty: str,
     position_side: Optional[str],
     reduce_only: bool = False,
-) -> Tuple[Optional[int], Optional[dict]]:
+) -> Tuple[Optional[str], Optional[dict]]:
     body: dict = {
         "category": config.CATEGORY_LINEAR,
         "symbol": symbol,
@@ -458,7 +469,7 @@ def place_limit_order_raw(
             "msg": result.get("retMsg"),
         }
     if isinstance(result, dict) and result.get("orderId"):
-        return int(result["orderId"]), None
+        return as_order_id(result["orderId"]), None
     return None, {"msg": str(result)}
 
 
@@ -468,7 +479,7 @@ def place_market_order_raw(
     qty: str,
     position_side: Optional[str],
     reduce_only: bool = False,
-) -> Tuple[Optional[int], Optional[dict]]:
+) -> Tuple[Optional[str], Optional[dict]]:
     body: dict = {
         "category": config.CATEGORY_LINEAR,
         "symbol": symbol,
@@ -487,7 +498,7 @@ def place_market_order_raw(
             "msg": result.get("retMsg"),
         }
     if isinstance(result, dict) and result.get("orderId"):
-        return int(result["orderId"]), None
+        return as_order_id(result["orderId"]), None
     return None, {"msg": str(result)}
 
 

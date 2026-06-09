@@ -7,6 +7,13 @@ from coin_rising_short import client, config, orders, positions, runtime, state
 logger = logging.getLogger(__name__)
 
 
+def _valid_order_id(oid) -> bool:
+    if oid is None:
+        return False
+    s = str(oid).strip()
+    return bool(s) and s != "0"
+
+
 def _sync_order_state() -> bool:
     """저장된 주문 ID와 거래소 open/filled 상태 맞춤."""
     if not state.position_state:
@@ -18,7 +25,7 @@ def _sync_order_state() -> bool:
         logger.warning("openOrders 조회 실패: %s", exc)
         orders_list = []
 
-    open_map = {(o["symbol"], int(o["orderId"])): o for o in orders_list}
+    open_map = {(o["symbol"], str(o["orderId"])): o for o in orders_list}
     remove_symbols: List[str] = []
     dirty = False
 
@@ -48,9 +55,9 @@ def _sync_order_state() -> bool:
             entry.setdefault("closed", False)
             entry.setdefault("entry_logged", False)
             oid = entry.get("order_id")
-            if not oid or int(oid) == 0:
+            if not _valid_order_id(oid):
                 continue
-            oid = int(oid)
+            oid = str(oid)
             key = (symbol, oid)
             if key in open_map:
                 o = open_map[key]
@@ -93,7 +100,7 @@ def _sync_order_state() -> bool:
 
         tp_oid = st.get("tp_order_id")
         if tp_oid:
-            tp_detail = orders.get_order_detail(symbol, int(tp_oid))
+            tp_detail = orders.get_order_detail(symbol, tp_oid)
             if tp_detail:
                 tp_status = tp_detail.get("status")
                 if tp_status == "FILLED":
@@ -110,7 +117,7 @@ def _sync_order_state() -> bool:
 
         exit_oid = st.get("exit_order_id")
         if exit_oid:
-            ex_detail = orders.get_order_detail(symbol, int(exit_oid))
+            ex_detail = orders.get_order_detail(symbol, exit_oid)
             ex_status = ex_detail.get("status") if ex_detail else None
             if ex_status == "FILLED":
                 st["tp_exit_logged"] = True
