@@ -50,6 +50,7 @@ TRADE_JOURNAL_PATH = os.getenv("TRADE_JOURNAL_FILE") or os.path.join(
 )
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS") or "50")
 EXIT_CLOSE_MAX_RETRIES = int(os.getenv("EXIT_CLOSE_MAX_RETRIES") or "5")
+FORCE_HEDGE = (os.getenv("FORCE_HEDGE") or "true").lower() == "true"
 
 FILTER_UPBIT_LISTED = (os.getenv("FILTER_UPBIT_LISTED") or "false").lower() == "true"
 FILTER_SPOT_COEXIST = (os.getenv("FILTER_SPOT_COEXIST") or "false").lower() == "true"
