@@ -65,8 +65,8 @@ class TestMonitorQualifiedMcap(unittest.TestCase):
 
         with patch.object(config, "MCAP_FILTER_ENABLED", True), patch.object(
             config, "FILTER_MCAP_FDV", False
-        ), patch.object(config, "MIN_MARKET_CAP_USD", Decimal("100000000")), patch(
-            "coin_rising_short.monitor.market_cap.get_market_cap_usd", return_value=Decimal("50000000")
+        ), patch.object(config, "MIN_MARKET_CAP_USD", Decimal("1000000")), patch(
+            "coin_rising_short.monitor.market_cap.get_market_cap_usd", return_value=Decimal("500000")
         ):
             qualified, _top = monitor.get_futures_gainers_and_top_movers(funding)
 
@@ -101,13 +101,31 @@ class TestMonitorQualifiedMcap(unittest.TestCase):
 
         with patch.object(config, "MCAP_FILTER_ENABLED", True), patch.object(
             config, "FILTER_MCAP_FDV", False
-        ), patch.object(config, "MIN_MARKET_CAP_USD", Decimal("100000000")), patch(
+        ), patch.object(config, "MIN_MARKET_CAP_USD", Decimal("1000000")), patch(
             "coin_rising_short.monitor.market_cap.get_market_cap_usd", return_value=cap
         ):
             qualified, _top = monitor.get_futures_gainers_and_top_movers(funding)
 
         self.assertEqual(len(qualified), 1)
         self.assertEqual(qualified[0].get("market_cap_usd"), cap)
+
+    @patch("coin_rising_short.monitor.symbols.TRADING_SYMBOLS", {"BTCUSDT": {}})
+    @patch("coin_rising_short.monitor.client.get_linear_tickers")
+    def test_mcap_fetch_failed_still_qualified_when_fail_open(
+        self, mock_tickers: MagicMock,
+    ) -> None:
+        mock_tickers.return_value = [self._ticker_row()]
+        funding = {"BTCUSDT": Decimal("0")}
+
+        with patch.object(config, "MCAP_FILTER_ENABLED", True), patch.object(
+            config, "MCAP_FAIL_OPEN", True
+        ), patch.object(config, "FILTER_MCAP_FDV", False), patch(
+            "coin_rising_short.monitor.market_cap.get_market_cap_usd", return_value=None
+        ):
+            qualified, _top = monitor.get_futures_gainers_and_top_movers(funding)
+
+        self.assertEqual(len(qualified), 1)
+        self.assertNotIn("market_cap_usd", qualified[0])
 
 
 if __name__ == "__main__":

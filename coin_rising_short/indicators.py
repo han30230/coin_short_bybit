@@ -232,60 +232,79 @@ def _supertrend_directions(
     return direction
 
 
+def get_supertrend_last_direction(symbol: str) -> Tuple[Optional[int], str]:
+    """최근 닫힌 4h 봉 SuperTrend 방향 (1=상승, -1=하락)."""
+    ohlc, err = _get_closed_ohlc(
+        symbol,
+        interval=config.SUPERTREND_INTERVAL,
+        limit=config.SUPERTREND_KLINE_LIMIT,
+    )
+    if ohlc is None:
+        return None, err or "OHLC 없음"
+    highs = ohlc["highs"]
+    lows = ohlc["lows"]
+    closes = ohlc["closes"]
+    period = config.SUPERTREND_ATR_PERIOD
+    if len(closes) < period + 5:
+        return None, f"캔들 부족: {len(closes)}"
+    directions = _supertrend_directions(
+        highs, lows, closes, period, config.SUPERTREND_FACTOR
+    )
+    return directions[-1], ""
+
+
+def evaluate_supertrend_signal(
+    symbol: str,
+    target_direction: int,
+    last_seen: Optional[int],
+) -> Tuple[bool, str, Optional[int]]:
+    """
+    target_direction: -1 숏 진입, 1 롱(청산) 신호.
+    last_seen와 같으면 중복 신호로 False.
+    """
+    curr_d, err = get_supertrend_last_direction(symbol)
+    if curr_d is None:
+        return False, err, None
+    if curr_d != target_direction:
+        label = "하락(-1)" if target_direction == -1 else "상승(1)"
+        return False, (
+            f"ST 대기 {config.SUPERTREND_INTERVAL} (curr={curr_d}, need={label})"
+        ), curr_d
+    if last_seen == target_direction:
+        return False, (
+            f"ST 유지 {config.SUPERTREND_INTERVAL} (이미 처리됨, dir={curr_d})"
+        ), curr_d
+    tag = "flip" if last_seen == -target_direction else "trend"
+    side = "short" if target_direction == -1 else "long"
+    return True, (
+        f"supertrend_{side}_{tag}({config.SUPERTREND_INTERVAL} "
+        f"p={config.SUPERTREND_ATR_PERIOD} f={config.SUPERTREND_FACTOR})"
+    ), curr_d
+
+
 def is_supertrend_short_signal(symbol: str) -> Tuple[bool, str]:
     """
-    최근 닫힌 4h 봉 기준 SuperTrend 하락(-1)이면 True.
-    - 1→-1 전환 시 진입
-    - 이미 -1(하락 추세)인 상태에서 감시 등록 직후에도 1회 진입
-    동일 -1이 연속이면 중복 진입하지 않음 (watch last_direction).
+    감시 등록 후 현재 닫힌 4h 봉 SuperTrend가 하락(-1)이면 True.
     """
-    try:
-        ohlc, err = _get_closed_ohlc(
-            symbol,
-            interval=config.SUPERTREND_INTERVAL,
-            limit=config.SUPERTREND_KLINE_LIMIT,
+    watch = runtime.QUALIFIED_WATCH.get(symbol)
+    curr_d, err = get_supertrend_last_direction(symbol)
+    if curr_d is None:
+        return False, err
+    if watch is not None:
+        watch["last_direction"] = curr_d
+    if curr_d != -1:
+        return False, (
+            f"ST 대기 {config.SUPERTREND_INTERVAL} (curr={curr_d}, need=-1)"
         )
-        if ohlc is None:
-            return False, err or "OHLC 없음"
+    return True, (
+        f"supertrend_short({config.SUPERTREND_INTERVAL} "
+        f"p={config.SUPERTREND_ATR_PERIOD} f={config.SUPERTREND_FACTOR})"
+    )
 
-        highs = ohlc["highs"]
-        lows = ohlc["lows"]
-        closes = ohlc["closes"]
-        period = config.SUPERTREND_ATR_PERIOD
-        min_len = period + 5
-        if len(closes) < min_len:
-            return False, f"캔들 부족: {len(closes)} < {min_len}"
 
-        directions = _supertrend_directions(
-            highs, lows, closes, period, config.SUPERTREND_FACTOR
-        )
-        L = len(directions) - 1
-        curr_d = directions[L]
-
-        watch = runtime.QUALIFIED_WATCH.get(symbol)
-        last_seen = watch.get("last_direction") if watch else None
-        if watch is not None:
-            watch["last_direction"] = curr_d
-
-        if curr_d != -1:
-            return False, (
-                f"ST 대기 {config.SUPERTREND_INTERVAL} (curr={curr_d}, need=-1)"
-            )
-
-        if last_seen == -1:
-            return False, (
-                f"ST 하락 유지 {config.SUPERTREND_INTERVAL} (이미 처리됨)"
-            )
-
-        tag = "flip" if last_seen == 1 else "downtrend"
-        return True, (
-            f"supertrend_short_{tag}({config.SUPERTREND_INTERVAL} "
-            f"p={period} f={config.SUPERTREND_FACTOR} src={config.SUPERTREND_SOURCE})"
-        )
-    except Exception as exc:
-        msg = f"SuperTrend 계산 실패: {exc}"
-        logger.warning("%s symbol=%s", msg, symbol, extra={"event": "supertrend_exception", "symbol": symbol})
-        return False, msg
+def is_supertrend_long_exit_signal(symbol: str, last_seen: Optional[int]) -> Tuple[bool, str]:
+    ok, reason, _curr_d = evaluate_supertrend_signal(symbol, 1, last_seen)
+    return ok, reason
 
 
 def allow_initial_short(symbol: str) -> Tuple[bool, str]:

@@ -19,13 +19,22 @@ _logged_no_cmc_key = False
 
 
 def log_mcap_filter_status_once() -> None:
-    """CMC 키 없음 시 1회만 안내."""
+    """시가총액 필터 상태 1회 안내."""
     global _logged_no_cmc_key
-    if not config.MCAP_FILTER_ENABLED and not _logged_no_cmc_key:
-        _logged_no_cmc_key = True
+    if _logged_no_cmc_key:
+        return
+    _logged_no_cmc_key = True
+    if config.MCAP_FILTER_ENABLED:
         logger.info(
-            "CMC_API_KEY가 없어 시가총액 필터를 건너뜀",
-            extra={"event": "mcap_filter_disabled_no_cmc_key"},
+            "시가총액 필터 ON (min_usd=%s, 조회 실패 시 %s)",
+            config.MIN_MARKET_CAP_USD,
+            "후보 유지" if config.MCAP_FAIL_OPEN else "후보 제외",
+            extra={"event": "mcap_filter_enabled"},
+        )
+    else:
+        logger.info(
+            "시가총액 필터 OFF (USE_MCAP_FILTER=false 또는 CMC 키 없음)",
+            extra={"event": "mcap_filter_disabled"},
         )
 
 

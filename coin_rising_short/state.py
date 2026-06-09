@@ -64,7 +64,7 @@ def save_position_state() -> None:
 
 
 def load_qualified_watch() -> None:
-    """재시작 후에도 ST 감시 목록 복원. last_direction은 None으로 리셋해 4h ST 재평가."""
+    """재시작 후 ST 감시 목록·last_direction 복원."""
     path = config.SUPERTREND_WATCH_STATE_PATH
     if not os.path.isfile(path):
         return
@@ -79,14 +79,20 @@ def load_qualified_watch() -> None:
                 continue
             if not isinstance(entry, dict):
                 continue
+            last_direction = entry.get("last_direction")
+            if last_direction is not None:
+                try:
+                    last_direction = int(last_direction)
+                except (TypeError, ValueError):
+                    last_direction = None
             runtime.QUALIFIED_WATCH[symbol] = {
                 "added_at": float(entry.get("added_at", 0)),
-                "last_direction": None,
+                "last_direction": last_direction,
             }
             restored += 1
         if restored:
             logger.info(
-                "SuperTrend 감시 목록 복원: %s개 (%s)",
+                "SuperTrend 감시 목록 복원: %s개 (last_direction 유지, %s)",
                 restored,
                 path,
                 extra={"event": "supertrend_watch_restored", "count": restored},

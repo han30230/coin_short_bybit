@@ -50,7 +50,7 @@ def _linear_to_binance_shape(row: dict) -> dict:
 
 
 def get_trading_symbols() -> Dict[str, dict]:
-    """선물(Linear USDT Perp) 중 Bybit 스팟에도 존재하는 심볼만."""
+    """Bybit Linear USDT Perp 거래 가능 심볼 (선택적 유니버스 필터)."""
     logger.info("심볼 정보 로딩 중...")
 
     fut_rows = client.fetch_instruments_paginated(config.CATEGORY_LINEAR)
@@ -74,18 +74,26 @@ def get_trading_symbols() -> Dict[str, dict]:
 
     futures_symbols: Dict[str, dict] = {}
     for row in raw_futures:
-        launch_ms = int(row.get("launchTime") or 0)
-        if not _is_old_enough_futures_symbol(launch_ms):
-            continue
+        if config.FILTER_FUTURES_LISTING_AGE:
+            launch_ms = int(row.get("launchTime") or 0)
+            if not _is_old_enough_futures_symbol(launch_ms):
+                continue
         shaped = _linear_to_binance_shape(row)
         futures_symbols[shaped["symbol"]] = shaped
 
-    logger.info(
-        "선물 상장 %s일 이상 필터 적용: %s개 -> %s개",
-        config.MIN_FUTURES_LISTING_AGE_DAYS,
-        len(raw_futures),
-        len(futures_symbols),
-    )
+    if config.FILTER_FUTURES_LISTING_AGE:
+        logger.info(
+            "선물 상장 %s일 이상 필터 적용: %s개 -> %s개",
+            config.MIN_FUTURES_LISTING_AGE_DAYS,
+            len(raw_futures),
+            len(futures_symbols),
+        )
+    else:
+        logger.info("선물 상장 기간 필터 적용: OFF (%s개)", len(futures_symbols))
+
+    if not config.FILTER_SPOT_COEXIST:
+        logger.info("스팟+선물 공존 필터 적용: OFF, 선물 심볼 %s개", len(futures_symbols))
+        return futures_symbols
 
     spot_rows = client.fetch_instruments_paginated(config.CATEGORY_SPOT)
     spot_symbols = {
@@ -95,7 +103,7 @@ def get_trading_symbols() -> Dict[str, dict]:
     }
 
     both = {k: v for k, v in futures_symbols.items() if k in spot_symbols}
-    logger.info("거래 가능 (선물+스팟 공존) 심볼: %s개", len(both))
+    logger.info("스팟+선물 공존 필터 적용: ON, %s개 -> %s개", len(futures_symbols), len(both))
     return both
 
 

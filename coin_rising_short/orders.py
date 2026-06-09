@@ -199,6 +199,43 @@ def place_take_profit_order(
         return None
 
 
+def close_short_position(symbol: str, qty: Decimal) -> Optional[int]:
+    """숏 포지션 시장가 청산 (reduceOnly)."""
+    try:
+        _, qty_step, min_qty, _ = filters.get_price_step_and_qty_step(symbol)
+        eff_qty = filters.round_step_floor(qty, qty_step)
+        if eff_qty < min_qty:
+            logger.warning("청산 최소 수량 미달: %s < %s", eff_qty, min_qty)
+            return None
+        pos_side = "SHORT" if runtime.IS_HEDGE else None
+        order_id, err = client.place_market_order_raw(
+            symbol=symbol,
+            side="Buy",
+            qty=str(eff_qty),
+            position_side=pos_side,
+            reduce_only=True,
+        )
+        if order_id is not None:
+            logger.info(
+                "숏 청산 주문: %s qty=%s orderId=%s",
+                symbol,
+                eff_qty,
+                order_id,
+                extra={
+                    "event": "short_close_placed",
+                    "symbol": symbol,
+                    "order_id": order_id,
+                    "qty": str(eff_qty),
+                },
+            )
+            return order_id
+        logger.warning("숏 청산 실패: %s / %s", symbol, err)
+        return None
+    except Exception as e:
+        logger.exception("숏 청산 예외: %s", e, extra={"symbol": symbol})
+        return None
+
+
 def _is_risk_limit_error(err: Optional[dict]) -> bool:
     if not err:
         return False

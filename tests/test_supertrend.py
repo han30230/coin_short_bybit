@@ -7,10 +7,13 @@ from coin_rising_short.indicators import _supertrend_directions, is_supertrend_s
 
 
 class TestSupertrendDirection(unittest.TestCase):
-    def test_short_signal_on_flip(self) -> None:
-        directions = [1] * 18 + [1, -1]
+    def tearDown(self) -> None:
+        runtime.QUALIFIED_WATCH.clear()
+
+    def test_short_signal_when_st_is_downtrend(self) -> None:
+        directions = [1] * 18 + [-1, -1]
         n = len(directions)
-        runtime.QUALIFIED_WATCH["BTCUSDT"] = {"added_at": 0, "last_direction": 1}
+        runtime.QUALIFIED_WATCH["BTCUSDT"] = {"added_at": 0, "last_direction": None}
         with patch.object(config, "SUPERTREND_ATR_PERIOD", 4), patch(
             "coin_rising_short.indicators._supertrend_directions",
             return_value=directions,
@@ -27,9 +30,10 @@ class TestSupertrendDirection(unittest.TestCase):
         ):
             ok, reason = is_supertrend_short_signal("BTCUSDT")
         self.assertTrue(ok)
-        self.assertIn("supertrend_short_flip", reason)
+        self.assertIn("supertrend_short", reason)
+        self.assertEqual(runtime.QUALIFIED_WATCH["BTCUSDT"]["last_direction"], -1)
 
-    def test_short_signal_when_already_downtrend(self) -> None:
+    def test_entry_when_already_downtrend_on_watch(self) -> None:
         directions = [1] * 18 + [-1, -1]
         n = len(directions)
         runtime.QUALIFIED_WATCH["ETHUSDT"] = {"added_at": 0, "last_direction": None}
@@ -49,9 +53,9 @@ class TestSupertrendDirection(unittest.TestCase):
         ):
             ok, reason = is_supertrend_short_signal("ETHUSDT")
         self.assertTrue(ok)
-        self.assertIn("supertrend_short_downtrend", reason)
+        self.assertEqual(runtime.QUALIFIED_WATCH["ETHUSDT"]["last_direction"], -1)
 
-    def test_no_repeat_while_stays_downtrend(self) -> None:
+    def test_signal_while_stays_downtrend(self) -> None:
         directions = [-1] * 20
         n = len(directions)
         runtime.QUALIFIED_WATCH["XRPUSDT"] = {"added_at": 0, "last_direction": -1}
@@ -70,10 +74,11 @@ class TestSupertrendDirection(unittest.TestCase):
             ),
         ):
             ok, _ = is_supertrend_short_signal("XRPUSDT")
-        self.assertFalse(ok)
+        self.assertTrue(ok)
 
     def test_no_signal_when_stays_bullish(self) -> None:
         directions = [1] * 20
+        runtime.QUALIFIED_WATCH["ETHUSDT"] = {"added_at": 0, "last_direction": None}
         with patch(
             "coin_rising_short.indicators._supertrend_directions",
             return_value=directions,

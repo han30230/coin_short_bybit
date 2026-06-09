@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
-from coin_rising_short import client, config, monitor, orders, runtime, sync, symbols
+from coin_rising_short import client, config, monitor, orders, runtime, state, sync, symbols
 
 
 class JsonLineFormatter(logging.Formatter):
@@ -79,10 +79,16 @@ def _configure_logging() -> None:
     root.addHandler(console_handler)
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    log_dir = os.path.join(project_root, "logs")
-    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.getenv("BOT_LOG_FILE")
+    if log_path:
+        log_file = log_path
+    else:
+        log_dir = os.path.join(project_root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "bot.log")
+    os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
     file_handler = RotatingFileHandler(
-        filename=os.path.join(log_dir, "bot.log"),
+        filename=log_file,
         maxBytes=2 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
@@ -95,10 +101,12 @@ def _configure_logging() -> None:
 def run() -> None:
     _configure_logging()
     logger = logging.getLogger(__name__)
+    account = os.getenv("BOT_ACCOUNT", "default")
     logger.info(
-        "Bybit Linear + Spot 공존 필터 버전 시작 (ENV=%s)",
+        "Bybit Linear 급등 숏 봇 시작 (ENV=%s, account=%s)",
         config.ENV,
-        extra={"event": "startup"},
+        account,
+        extra={"event": "startup", "account": account},
     )
     client.refresh_time_offset()
     logger.info(
@@ -114,6 +122,7 @@ def run() -> None:
     runtime.IS_HEDGE = orders.get_dual_side_position()
     logger.info("Hedge mode?: %s", runtime.IS_HEDGE, extra={"event": "hedge_mode_checked"})
 
+    state.load_position_state()
     state.load_qualified_watch()
     sync.sync_state_with_exchange()
     monitor.monitor_loop()
