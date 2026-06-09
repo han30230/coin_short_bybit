@@ -23,6 +23,16 @@ def _sync_order_state() -> bool:
     dirty = False
 
     for symbol, st in list(state.position_state.items()):
+        if st.get("external"):
+            remove_symbols.append(symbol)
+            dirty = True
+            logger.info(
+                "수동 포지션 추적 해제(봇 관리 대상 아님): %s",
+                symbol,
+                extra={"event": "external_tracking_dropped", "symbol": symbol},
+            )
+            continue
+
         st.setdefault("reentry_count", 0)
         st.setdefault("last_reentry_price", st.get("entry_price", Decimal("0")))
         st.setdefault("tp_order_id", None)
@@ -130,10 +140,10 @@ def reconcile_positions_with_exchange(
     exchange_shorts: Dict[str, positions.ExternalShort] | None = None,
 ) -> bool:
     """
-    거래소 실포지션과 로컬 JSON 대조.
-    - 수동 청산: 로컬 filled 있으나 거래소 size=0 → 상태 정리
-    - 수동 진입: 거래소 숏 있으나 로컬 없음/미체결 → 추적 등록
-    - 수량 불일치: 거래소 size 기준으로 로컬 수정
+    봇이 연 포지션만 거래소와 대조.
+    - 수동 청산: 봇 추적 filled 있으나 거래소 size=0 → 상태 정리
+    - 수동 진입: 추적/청산하지 않음
+    - 부분 수동 청산: 거래소 size가 더 작을 때만 로컬 qty 하향 동기화
     """
     if exchange_shorts is None:
         exchange_shorts = positions.fetch_exchange_shorts()
@@ -142,6 +152,16 @@ def reconcile_positions_with_exchange(
 
     for symbol in list(state.position_state.keys()):
         st = state.position_state[symbol]
+        if st.get("external"):
+            state.position_state.pop(symbol, None)
+            dirty = True
+            logger.info(
+                "수동 포지션 추적 해제: %s",
+                symbol,
+                extra={"event": "external_tracking_dropped", "symbol": symbol},
+            )
+            continue
+
         _, local_qty, _ = positions.get_filled_from_state(st)
         ex = exchange_shorts.get(symbol)
         ex_qty = ex["size"] if ex else Decimal("0")
@@ -150,47 +170,44 @@ def reconcile_positions_with_exchange(
             positions.clear_symbol_state(
                 symbol,
                 st,
-                note="수동 청산 감지(거래소 동기화)",
+                note="수동 청산 감지(봇 추적 포지션)",
             )
             remove_symbols.append(symbol)
             dirty = True
             logger.info(
-                "수동 청산 반영: %s (로컬 qty=%s)",
+                "봇 포지션 수동 청산 반영: %s (로컬 qty=%s)",
                 symbol,
                 local_qty,
                 extra={"event": "manual_close_detected", "symbol": symbol},
             )
             continue
 
-        if ex and ex_qty > 0:
-            if local_qty <= 0:
-                pending = any(
-                    not e.get("closed") and not e.get("filled")
-                    for e in st.get("entries", [])
+        if ex and ex_qty > 0 and local_qty > 0:
+            if positions.sync_state_qty_from_exchange(symbol, st, ex):
+                dirty = True
+
+        if local_qty <= 0 and ex and ex_qty > 0:
+            pending = any(
+                not e.get("closed") and not e.get("filled")
+                for e in st.get("entries", [])
+            )
+            if pending:
+                for entry in st.get("entries", []):
+                    if not entry.get("closed") and not entry.get("filled"):
+                        entry["closed"] = True
+                        entry["filled"] = False
+                dirty = True
+                logger.info(
+                    "미체결 주문 정리(거래소 숏은 수동 포지션): %s",
+                    symbol,
+                    extra={"event": "pending_cleared_manual_position", "symbol": symbol},
                 )
-                if pending:
-                    for entry in st.get("entries", []):
-                        if not entry.get("closed") and not entry.get("filled"):
-                            entry["closed"] = True
-                            entry["filled"] = False
-                    dirty = True
-                positions.adopt_external_short(symbol, ex)
-                dirty = True
-            elif positions.sync_state_qty_from_exchange(symbol, st, ex):
-                dirty = True
 
         entries = st.get("entries", [])
         if entries and all(bool(e.get("closed")) for e in entries) and not st.get("tp_order_id"):
             if symbol not in remove_symbols:
                 remove_symbols.append(symbol)
                 dirty = True
-
-    for symbol, ex in exchange_shorts.items():
-        if symbol in state.position_state:
-            continue
-        positions.adopt_external_short(symbol, ex)
-        runtime.QUALIFIED_WATCH.pop(symbol, None)
-        dirty = True
 
     for symbol in remove_symbols:
         state.position_state.pop(symbol, None)
@@ -214,18 +231,22 @@ def sync_state_with_exchange() -> None:
     if dirty:
         state.save_position_state()
 
-    exchange_shorts = positions.fetch_exchange_shorts()
-    open_count = len(exchange_shorts) if exchange_shorts else positions.count_open_short_positions()
+    bot_count = positions.count_open_short_positions()
+    try:
+        exchange_count = len(positions.fetch_exchange_shorts())
+    except Exception:
+        exchange_count = bot_count
     logger.info(
-        "동기화 완료: 추적 심볼 %s개, 거래소 숏 %s개 (한도 %s) -> %s",
+        "동기화 완료: 봇 추적 %s개, 거래소 숏 %s개 (한도 %s) -> %s",
         len(state.position_state),
-        open_count,
+        exchange_count,
         config.MAX_CONCURRENT_POSITIONS,
         config.POSITION_STATE_PATH,
         extra={
             "event": "sync_completed",
             "tracked_symbols": len(state.position_state),
-            "exchange_shorts": open_count,
+            "bot_open_shorts": bot_count,
+            "exchange_shorts": exchange_count,
             "max_positions": config.MAX_CONCURRENT_POSITIONS,
         },
     )

@@ -63,11 +63,12 @@ def fetch_exchange_shorts() -> Dict[str, ExternalShort]:
 
 
 def count_open_short_positions(exchange_shorts: Optional[Dict[str, ExternalShort]] = None) -> int:
-    shorts = exchange_shorts if exchange_shorts is not None else fetch_exchange_shorts()
-    if shorts:
-        return len(shorts)
+    """봇이 추적 중인 체결 숏만 집계 (수동 포지션 제외)."""
+    _ = exchange_shorts
     count = 0
     for st in state.position_state.values():
+        if st.get("external"):
+            continue
         _, qty, _ = get_filled_from_state(st)
         if qty > 0:
             count += 1
@@ -157,11 +158,15 @@ def adopt_external_short(symbol: str, ex: ExternalShort) -> None:
 
 
 def sync_state_qty_from_exchange(symbol: str, st: Dict[str, Any], ex: ExternalShort) -> bool:
-    """로컬 체결 수량을 거래소 숏 size에 맞춤 (부분 수동 청산 등)."""
+    """봇 체결 수량을 거래소 숏 size에 맞춤 (부분 수동 청산). 수동 추가분은 반영하지 않음."""
+    if st.get("external"):
+        return False
     ex_qty = ex["size"]
     ex_avg = ex.get("avg_price") or Decimal("0")
     _, local_qty, _ = get_filled_from_state(st)
     if local_qty <= 0 or ex_qty <= 0:
+        return False
+    if ex_qty > local_qty:
         return False
     if abs(local_qty - ex_qty) <= Decimal("0.0000001"):
         return False

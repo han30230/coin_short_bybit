@@ -203,7 +203,10 @@ def _process_short_exit(symbol: str, st: Dict[str, Any], exchange_shorts: Dict[s
             positions.clear_symbol_state(symbol, st, note="청산 완료(거래소 포지션 없음)")
         return True
 
-    close_qty = ex_qty
+    if local_qty <= 0:
+        return False
+
+    close_qty = local_qty if local_qty <= ex_qty else ex_qty
 
     logger.info(
         "숏 청산 시도: %s qty=%s (exit_pending=%s)",
@@ -419,6 +422,9 @@ def check_supertrend_exit_and_log(
     dirty = False
     remove_symbols: List[str] = []
     for symbol, st in list(state.position_state.items()):
+        if st.get("external"):
+            continue
+
         st.setdefault("exit_pending", False)
         st.setdefault("exit_order_id", None)
         st.setdefault("exit_retry_count", 0)
