@@ -284,20 +284,30 @@ def evaluate_supertrend_signal(
 
 def is_supertrend_short_signal(symbol: str) -> Tuple[bool, str]:
     """
-    감시 등록 후 현재 닫힌 4h 봉 SuperTrend가 하락(-1)이면 True.
+    감시 등록 후 4h ST가 롱(1) → 숏(-1)으로 전환(flip)할 때만 True.
+    감시 직후 이미 -1이면 진입하지 않음 (먼저 1을 거친 뒤 -1로 바뀔 때 진입).
     """
     watch = runtime.QUALIFIED_WATCH.get(symbol)
     curr_d, err = get_supertrend_last_direction(symbol)
     if curr_d is None:
         return False, err
+
+    prev = watch.get("last_direction") if watch else None
     if watch is not None:
         watch["last_direction"] = curr_d
+
     if curr_d != -1:
         return False, (
-            f"ST 대기 {config.SUPERTREND_INTERVAL} (curr={curr_d}, need=-1)"
+            f"ST 대기 {config.SUPERTREND_INTERVAL} (curr={curr_d}, need=flip 1→-1)"
         )
+
+    if prev != 1:
+        return False, (
+            f"ST 대기 {config.SUPERTREND_INTERVAL} (curr=-1, 감시 후 1→-1 전환 대기, prev={prev})"
+        )
+
     return True, (
-        f"supertrend_short({config.SUPERTREND_INTERVAL} "
+        f"supertrend_short_flip({config.SUPERTREND_INTERVAL} "
         f"p={config.SUPERTREND_ATR_PERIOD} f={config.SUPERTREND_FACTOR})"
     )
 
