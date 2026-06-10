@@ -56,8 +56,8 @@ def main() -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    os.environ["BYBIT_API_KEY_SH"] = api_key
-    os.environ["BYBIT_SECRET_SH"] = api_secret
+    os.environ["BOT_API_KEY"] = api_key
+    os.environ["BOT_API_SECRET"] = api_secret
     os.environ["BOT_ACCOUNT"] = label
     os.environ["POSITION_STATE_FILE"] = str(state_dir / "position_state.json")
     os.environ["SUPERTREND_WATCH_STATE_FILE"] = str(state_dir / "supertrend_watch.json")

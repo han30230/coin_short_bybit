@@ -7,10 +7,19 @@ getcontext().prec = 16
 _PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_PACKAGE_ROOT)
 
-load_dotenv(dotenv_path=os.path.join(_PROJECT_ROOT, ".env"))
+load_dotenv(dotenv_path=os.path.join(_PROJECT_ROOT, ".env"), override=False)
 
-API_KEY = os.getenv("BYBIT_API_KEY_SH") or os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_SECRET_SH") or os.getenv("BYBIT_SECRET")
+# 진입점(run_bybit_account / Bybit_SH_1)이 BOT_API_KEY 로 계정별 키를 주입
+API_KEY = (
+    os.getenv("BOT_API_KEY")
+    or os.getenv("BYBIT_API_KEY_SH")
+    or os.getenv("BYBIT_API_KEY")
+)
+API_SECRET = (
+    os.getenv("BOT_API_SECRET")
+    or os.getenv("BYBIT_SECRET_SH")
+    or os.getenv("BYBIT_SECRET")
+)
 
 ENV = (os.getenv("BYBIT_ENV") or os.getenv("BINANCE_ENV") or "mainnet").lower()
 BASE_URL = "https://api.bybit.com" if ENV == "mainnet" else "https://api-testnet.bybit.com"

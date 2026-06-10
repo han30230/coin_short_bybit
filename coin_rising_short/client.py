@@ -84,7 +84,10 @@ def normalize_order(raw: dict) -> dict:
     return {
         "symbol": raw.get("symbol"),
         "orderId": as_order_id(oid) if oid is not None else "",
+        "side": str(raw.get("side") or ""),
         "status": normalize_order_status(str(raw.get("orderStatus", ""))),
+        "price": str(raw.get("price") or "0"),
+        "qty": str(raw.get("qty") or "0"),
         "avgPrice": str(raw.get("avgPrice") or "0"),
         "executedQty": str(raw.get("cumExecQty") or "0"),
         "updateTime": int(raw.get("updatedTime") or raw.get("createdTime") or 0),

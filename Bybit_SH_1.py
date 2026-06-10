@@ -4,9 +4,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+from dotenv import load_dotenv
 
-# config import 전에 계정별 state/logs 경로 고정 (다른 폴더·다른 계정과 분리)
+ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / ".env", override=False)
+
+# config import 전에 계정별 state/logs·API 키 고정 (다른 폴더·다른 계정과 분리)
+if not os.getenv("BOT_API_KEY"):
+    os.environ["BOT_API_KEY"] = (
+        os.getenv("BYBIT_API_KEY_SH") or os.getenv("BYBIT_API_KEY") or ""
+    )
+    os.environ["BOT_API_SECRET"] = (
+        os.getenv("BYBIT_SECRET_SH") or os.getenv("BYBIT_SECRET") or ""
+    )
+
 if not os.getenv("POSITION_STATE_FILE"):
     state_dir = ROOT / "state" / "sh"
     log_dir = ROOT / "logs" / "sh"

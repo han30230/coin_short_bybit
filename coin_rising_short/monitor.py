@@ -8,6 +8,47 @@ from coin_rising_short import client, config, indicators, market_cap, market_dat
 logger = logging.getLogger(__name__)
 
 
+def _collect_open_sell_symbols() -> set[str]:
+    """거래소 미체결 숏(매도) 지정가 — 중복 진입 방지용."""
+    out: set[str] = set()
+    try:
+        for o in client.get_open_orders():
+            sym = o.get("symbol")
+            if not isinstance(sym, str):
+                continue
+            side = str(o.get("side", "")).upper()
+            status = str(o.get("status", "")).upper()
+            if side == "SELL" and status in ("NEW", "PARTIALLY_FILLED"):
+                out.add(sym)
+    except Exception as exc:
+        logger.warning("openOrders 조회 실패(진입 중복 방지): %s", exc)
+    return out
+
+
+def _has_unfilled_local_entry(symbol: str) -> bool:
+    st = state.position_state.get(symbol)
+    if not st:
+        return False
+    return any(
+        not e.get("closed") and not e.get("filled")
+        for e in st.get("entries", [])
+    )
+
+
+def _entry_blocked(symbol: str, open_sell_symbols: set[str]) -> bool:
+    if symbol in open_sell_symbols:
+        logger.info(
+            "미체결 숏 주문 있음 — 진입 스킵: %s",
+            symbol,
+            extra={"event": "entry_skipped_open_order", "symbol": symbol},
+        )
+        return True
+    if _has_unfilled_local_entry(symbol):
+        logger.debug("로컬 미체결 엔트리 있음 — 진입 스킵: %s", symbol)
+        return True
+    return False
+
+
 def _get_funding_rate_map() -> Dict[str, Decimal]:
     tickers = client.get_linear_tickers()
     out: Dict[str, Decimal] = {}
@@ -581,15 +622,20 @@ def _sync_qualified_watch(gainers: List[Dict[str, Any]]) -> None:
 
 def _process_watch_entries(
     exchange_shorts: Optional[Dict[str, positions.ExternalShort]],
+    open_sell_symbols: Optional[set[str]] = None,
 ) -> None:
     """감시 목록 전체에 대해 ST 숏 진입 시도 (순위 이탈해도 유지)."""
+    if open_sell_symbols is None:
+        open_sell_symbols = _collect_open_sell_symbols()
     for symbol in list(runtime.QUALIFIED_WATCH.keys()):
-        if symbol in state.position_state:
+        if symbol in state.position_state and not _has_unfilled_local_entry(symbol):
+            continue
+        if _entry_blocked(symbol, open_sell_symbols):
             continue
         until = runtime.SKIP_UNTIL.get(symbol, 0)
         if until and int(time.time()) < until:
             continue
-        _try_initial_short_entry(symbol, exchange_shorts)
+        _try_initial_short_entry(symbol, exchange_shorts, open_sell_symbols)
 
 
 def _process_reentries(gainers: List[Dict[str, Any]]) -> None:
@@ -660,7 +706,9 @@ def _process_reentries(gainers: List[Dict[str, Any]]) -> None:
             state.save_position_state()
 
 
-def _record_initial_short_entry(symbol: str, entry: Tuple[Decimal, Decimal, int]) -> None:
+def _record_initial_short_entry(
+    symbol: str, entry: Tuple[Decimal, Decimal, orders.OrderId]
+) -> None:
     entry_price, qty, order_id = entry
     state.position_state[symbol] = {
         "entry_price": entry_price,
@@ -706,7 +754,13 @@ def _record_initial_short_entry(symbol: str, entry: Tuple[Decimal, Decimal, int]
 def _try_initial_short_entry(
     symbol: str,
     exchange_shorts: Optional[Dict[str, positions.ExternalShort]] = None,
+    open_sell_symbols: Optional[set[str]] = None,
 ) -> None:
+    if open_sell_symbols is None:
+        open_sell_symbols = _collect_open_sell_symbols()
+    if _entry_blocked(symbol, open_sell_symbols):
+        return
+
     if positions.at_position_capacity(exchange_shorts):
         logger.info(
             "동시 포지션 한도(%s) 도달 — 신규 진입 스킵: %s",
@@ -761,6 +815,7 @@ def monitor_loop() -> None:
     while True:
         try:
             exchange_shorts = positions.fetch_exchange_shorts()
+            open_sell_symbols = _collect_open_sell_symbols()
             funding_rate_map = _get_funding_rate_map()
             gainers, top3 = get_futures_gainers_and_top_movers(funding_rate_map)
             now_str = time.strftime("%H:%M:%S")
@@ -832,7 +887,7 @@ def monitor_loop() -> None:
                     )
 
                 if config.USE_SUPERTREND_ENTRY:
-                    _process_watch_entries(exchange_shorts)
+                    _process_watch_entries(exchange_shorts, open_sell_symbols)
                 else:
                     for g in gainers[:top_n]:
                         symbol = g["symbol"]
@@ -841,13 +896,13 @@ def monitor_loop() -> None:
                         until = runtime.SKIP_UNTIL.get(symbol, 0)
                         if until and int(time.time()) < until:
                             continue
-                        _try_initial_short_entry(symbol, exchange_shorts)
+                        _try_initial_short_entry(symbol, exchange_shorts, open_sell_symbols)
 
                 _process_reentries(gainers)
 
             if runtime.QUALIFIED_WATCH and config.USE_SUPERTREND_ENTRY:
                 if not gainers:
-                    _process_watch_entries(exchange_shorts)
+                    _process_watch_entries(exchange_shorts, open_sell_symbols)
 
             check_filled_and_refresh_tp()
             sync.reconcile_positions_with_exchange(exchange_shorts)
