@@ -3,7 +3,7 @@ import time
 from decimal import Decimal
 from typing import Optional, Tuple, Union
 
-from coin_rising_short import client, config, filters, runtime
+from coin_rising_short import atl, client, config, filters, runtime
 
 OrderId = Union[int, str]
 
@@ -254,8 +254,10 @@ def place_short_order(
 ) -> Optional[Tuple[Decimal, Decimal, OrderId]]:
     logger.info("숏 주문 시도: %s", symbol)
     try:
-        ensure_leverage(symbol)
         price = client.get_ticker_price(symbol)
+        if not atl.allow_short(symbol, price):
+            return None
+        ensure_leverage(symbol)
         price_step, qty_step, min_qty, min_notional = filters.get_price_step_and_qty_step(symbol)
 
         raw_price = price * (Decimal("1") + config.PREMIUM_PCT)

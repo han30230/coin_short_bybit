@@ -106,3 +106,8 @@ MCAP_CACHE_TTL_SEC = int(os.getenv("MCAP_CACHE_TTL_SEC") or "900")
 FILTER_MCAP_FDV = (os.getenv("FILTER_MCAP_FDV") or "false").lower() == "true"
 MIN_MCAP_FDV_RATIO = Decimal(os.getenv("MIN_MCAP_FDV_RATIO") or "0.4")
 COINGECKO_API_BASE = os.getenv("COINGECKO_API_BASE") or "https://api.coingecko.com/api/v3"
+
+# Entire exchange-contract history; incomplete/stale history blocks short entries.
+ATL_FILTER_ENABLED = (os.getenv("ATL_FILTER_ENABLED") or "true").lower() == "true"
+ATL_ENTRY_MULTIPLIER = Decimal(os.getenv("ATL_ENTRY_MULTIPLIER") or "1.3")
+ATL_CACHE_FILE = os.getenv("ATL_CACHE_FILE") or os.path.join(_PROJECT_ROOT, "atl_cache.json")

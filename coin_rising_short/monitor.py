@@ -3,7 +3,7 @@ import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from coin_rising_short import client, config, indicators, market_cap, market_data, orders, positions, runtime, state, symbols, sync, trade_journal
+from coin_rising_short import atl, client, config, indicators, market_cap, market_data, orders, positions, runtime, state, symbols, sync, trade_journal
 
 logger = logging.getLogger(__name__)
 
@@ -774,6 +774,7 @@ def _try_initial_short_entry(
         )
         return
 
+    previous_st_direction = runtime.QUALIFIED_WATCH.get(symbol, {}).get("last_direction")
     if config.USE_SUPERTREND_ENTRY:
         ok, reason = indicators.is_supertrend_short_signal(symbol)
         if not ok:
@@ -799,6 +800,10 @@ def _try_initial_short_entry(
     entry = orders.place_short_order(symbol)
     if entry is not None:
         _record_initial_short_entry(symbol, entry)
+    elif atl.was_blocked(symbol) and symbol in runtime.QUALIFIED_WATCH:
+        # History warm-up / distance filtering must not consume the observed ST flip.
+        runtime.QUALIFIED_WATCH[symbol]["last_direction"] = previous_st_direction
+        state.save_qualified_watch()
 
 
 def monitor_loop() -> None:
@@ -917,3 +922,4 @@ def monitor_loop() -> None:
         except Exception as e:
             logger.exception("루프 오류: %s", e)
         time.sleep(config.POLL_INTERVAL_SEC)
+

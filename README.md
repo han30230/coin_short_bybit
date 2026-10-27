@@ -38,3 +38,7 @@ python migrate_trade_journal.py
 ## Telegram 알림
 
 선택형 체결·청산·오류 알림과 설정 방법은 [Telegram 알림 설정](docs/telegram_notifications.md)을 참고하세요. 기본은 OFF입니다.
+
+## 전체 이력 ATL 필터
+
+현재가가 선물 상장 이후 전체 ATL의 1.3배 이하면 신규·추가 숏을 차단합니다. [설정과 검증 범위](docs/atl_filter.md)를 확인하세요.
